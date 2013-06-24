@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Parky</title>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+        <link rel="stylesheet" href="http://code.jquery.com/mobile/1.1.1/jquery.mobile-1.1.1.min.css"/>
+        <script src="http://code.jquery.com/jquery-1.7.1.min.js"></script>
+        <script src="http://code.jquery.com/mobile/1.1.1/jquery.mobile-1.1.1.min.js"></script>
+        <script type="text/javascript" charset="utf-8" src="cordova-2.7.0.js"></script>
+        <script src="usergrid.0.10.5.js"></script>
+
+        <link type="text/css" rel="stylesheet" href="css/style.css" />
+        
+        <script type="text/javascript" src="http://maps.google.com/maps/api/js?sensor=false"></script> 
+        <script type="text/javascript" src="map/jquery.ui.map.js"></script>
+        
+        <script type="text/javascript">
+        
+            var apigee = new Usergrid.Client({
+                orgName:'tammee',
+                appName:'sandbox'
+            });
+
+            var position;
+            var parkings_data = [];
+
+            $(function() {
+                if (navigator.userAgent.match(/(iPhone|iPod|iPad|Android|BlackBerry)/)) {
+                    // Wait for the device to be ready to grab the geoloc
+                    // Helps avoid the unsightly iOS authorization message
+                    // http://stackoverflow.com/questions/1673579/location-permission-alert-on-iphone-with-phonegap
+                    document.addEventListener("deviceready", onDeviceReady, true);
+                } else {
+                    onDeviceReady(); //this is the browser
+                }
+                $("input:radio[name=sort]").bind('change', buttonChanged);
+                $("#searchInput").bind( "change", search );
+
+                
+            })
+
+            function onDeviceReady() {
+                navigator.geolocation.getCurrentPosition(loadParkings, onError);
+            }
+
+            function search(event, ui) {
+                //alert()
+                //alert($('#map_canvas').gmap());//$('#searchInput').val());
+                //$('#map_canvas').gmap('search', { 'address': 'Stockholm' }, function(results,isFound) {
+                //if (isFound) {
+                //    alert(isFound);
+                //}
+                //});
+            }
+
+            function loadMap(){
+
+                $('#map_canvas').gmap({'center': position.coords.latitude+","+position.coords.longitude, 'zoom': 18, 'disableDefaultUI':true, 'callback': function() {
+                        var self = this;
+
+                        self.addMarker({'color':'green','position': this.get('map').getCenter() }).click(function() {
+                            self.openInfoWindow({ 'color':'green','content': 'You are here.' }, this);
+                        });
+                        //alert(parkings_data);
+                        $.each( parkings_data, function(i, one_parking) {
+                                self.addMarker({ 'position': new google.maps.LatLng(one_parking.location.latitude, one_parking.location.longitude),
+                                    'bounds':true } ).click(function() {
+                                    self.openInfoWindow({ 'content': one_parking.name }, this);
+                                });
+                        });
+
+                    }});
+                
+            }
+
+            function buttonChanged(event, ui) {
+                //alert($('input:radio[name=sort]:checked').val());
+                //loadParkings(position);
+                onDeviceReady();
+            }
+
+            function loadParkings (location) {
+                //alert('loading...');
+                position = location;
+
+                var convertHours = function(time){
+                    return Number(time.split(':')[0]) + Number(time.split(':')[1])/60;
+                }
+
+                var openClosed = function(hours){
+                    var open = convertHours(hours.split('-')[0]);
+                    var closed = convertHours(hours.split('-')[1]);
+                    var time = new Date().getHours();
+                    return ((time < closed) && (time > open)) ? "Open" : "Closed"
+                }
+
+                //alert($('input:radio[name=sort]:checked').val());
+                // , "qs":{"ql":"location within 15000 of "+location.coords.latitude+","+location.coords.longitude}
+                var parkings = new Usergrid.Collection( { "client":apigee, "type":"parkings", "qs": {"ql":"location within 150000 of "+location.coords.latitude+","+location.coords.longitude + " order by " + $('input:radio[name=sort]:checked').val()} } );
+                
+                //alert(parkings);
+
+                parkings.fetch( // Actual network call
+
+                    // Success Callback
+                    function () {
+                        $('#parkings-list').empty();
+                        
+                        while ( parkings.hasNextEntity() ) {
+                            var current_parking = parkings.getNextEntity();
+                            parkings_data.push(current_parking._data);
+
+                            $('#parkings-list').append('<li><a href="#page' + current_parking.get('uuid') + '" data-transition="slide">'
+                                + current_parking.get('name') + '<span class="ui-li-count">$' + current_parking.get('price') + ' | '
+                                + Math.round( getDistance(current_parking.get('location').latitude, current_parking.get('location').longitude,
+                                    position.coords.latitude, position.coords.longitude, 'M') * 10 ) / 10 
+                                + 'mi</span><br/><br/><p>' + current_parking.get('address') + '</p></a></li>');
+
+                            $('body').append('<div data-role="page" id="page'
+                            +current_parking.get('uuid')
+                            +'"><div data-theme="b" data-role="header" data-position="fixed"><h3>'
+                            +current_parking.get('name')
+                            +'</h3><a data-role="button" data-rel="back" data-icon="arrow-l" data-iconpos="left"class="ui-btn-left">Results</a></div>\
+                            <div data-role="content"><div><p><b>Address</b><br/>'
+                            +current_parking.get('address')
+                            +'</p><p><b>Phone number</b><br/>'
+                            +current_parking.get('phonenumber')
+                            +'</p><p><b>Hours</b><br/>'
+                            +current_parking.get('hours') + " - " + openClosed(current_parking.get('hours'))                           
+                            +'</p><p><b>Price</b><br/>'
+                            +'$' + Number(current_parking.get('price')).toFixed(2)                            
+                            +'</p><p><b>Number of spaces</b><br/>'
+                            +current_parking.get('noofspaces')                            
+                            +'</p><a href="http://maps.apple.com/maps?q='
+                            + current_parking.get('location').latitude + ',' + current_parking.get('location').longitude
+                            + '" data-role="button"'
+                            + 'data-theme="a" data-inline="true">Live map</a></div></div></div>');
+                        }
+                
+                        //alert(parkings_data.length);
+                
+                        // Re-apply jQuery Mobile styles
+                        $('#parkings-list').listview('refresh');
+                        loadMap();
+                    },
+
+                    // Failure Callback
+                    function () { alert("read failed"); }
+                );
+                
+                
+
+            }
+
+            function onError(error) {
+                alert('code: '    + error.code    + '\n' +
+                  'message: ' + error.message + '\n');
+            }
+
+            function getDistance(lat1, lon1, lat2, lon2, unit) {
+                var radlat1 = Math.PI * lat1/180
+                var radlat2 = Math.PI * lat2/180
+                var radlon1 = Math.PI * lon1/180
+                var radlon2 = Math.PI * lon2/180
+                var theta = lon1-lon2
+                var radtheta = Math.PI * theta/180
+                var dist = Math.sin(radlat1) * Math.sin(radlat2) + Math.cos(radlat1) * Math.cos(radlat2) * Math.cos(radtheta);
+                dist = Math.acos(dist)
+                dist = dist * 180/Math.PI
+                dist = dist * 60 * 1.1515
+                if (unit=="K") { dist = dist * 1.609344 }
+                if (unit=="N") { dist = dist * 0.8684 }
+                return dist
+            }
+        </script>
+</head>
+<body >
+<!-- Home -->
+<div data-role="page" id="main_page">
+    <div data-theme="b" data-role="header">
+        <h3>
+            Parky
+        </h3>
+    </div>
+        <div class="item rounded dark">
+            <!--label for="search-basic">Search location:</label-->
+            <input type="search" name="searchInput" id="searchInput" value="Current location" style="background-color:transparent;"/>
+            <div id="map_canvas" class="map rounded"></div>
+        </div>
+
+        <div data-role="fieldcontain">
+            <fieldset data-role="controlgroup" data-type="horizontal">
+                <legend>Sort by:</legend>
+                <input type="radio" name="sort" id="radio-choice-1" value="price" checked="checked" data-theme="b"/>
+                <label for="radio-choice-1">Price</label>
+
+                <input type="radio" name="sort" id="radio-choice-2" value="location" data-theme="b"/>
+                <label for="radio-choice-2">Distance</label>
+            </fieldset>
+        </div>
+        <!--div data-role="fieldcontain">
+            <form>
+                <legend>
+                    Sort by:
+                </legend>
+                <input id="price_radio" name="sort" value="price"  type="radio" data-theme="b" checked="checked">Price</input>
+                <input id="location_radio" name="sort" value="location" type="radio" data-theme="b">Distance</input>
+                
+            </form>
+        </div-->
+        
+          <ul id="parkings-list" data-role="listview" data-divider-theme="b" >
+            <li data-theme="c">
+              <!-- link should take to google maps -->
+                <a href="#page1" data-transition="slide">
+                    Parking 1
+                    <span class="ui-li-count">
+                        Price | Distance
+                    </span><br/>
+                    <p>Address</p>
+                </a>
+            </li>
+          </ul>
+    
+</div>
+</body>
+</html>
